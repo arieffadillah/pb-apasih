@@ -45,6 +45,13 @@ import {
 // =========================================================================
 // ⚠️ MASUKKAN KONFIGURASI FIREBASE ANDA DI SINI ⚠️
 // =========================================================================
+//let firebaseConfig = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: "";//
 const firebaseConfig = {
   apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
   authDomain: "pb-apasih.firebaseapp.com",
