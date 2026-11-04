@@ -51,7 +51,8 @@ import {
   projectId: "",
   storageBucket: "",
   messagingSenderId: "",
-  appId: "";//
+  appId: ""
+;//
 const firebaseConfig = {
   apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
   authDomain: "pb-apasih.firebaseapp.com",
