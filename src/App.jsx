@@ -45,7 +45,7 @@ import {
 // =========================================================================
 // ⚠️ MASUKKAN KONFIGURASI FIREBASE ANDA DI SINI ⚠️
 // =========================================================================
-let firebaseConfig = {
+const firebaseConfig = {
   apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
   authDomain: "pb-apasih.firebaseapp.com",
   projectId: "pb-apasih",
