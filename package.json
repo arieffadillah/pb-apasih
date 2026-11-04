@@ -1,27 +1,27 @@
 {
   "name": "pb-apasih",
-  "version": "0.0.0",
   "private": true,
+  "version": "0.0.0",
   "type": "module",
-  //"scripts": {
+  "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
-  },//
-  "scripts": {
-  "dev": "vite",
-  "build": "vite build",
-  "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-  "preview": "vite preview"
-},
-  "devDependencies": {
-    "autoprefixer": "^10.6.2",
-    "postcss": "^8.5.32",
-    "tailwindcss": "^4.3.4",
-    "vite": "^8.3.5"
   },
   "dependencies": {
-    "firebase": "^13.2.0",
-    "lucide-react": "^1.67.0"
+    "firebase": "^10.0.0",
+    "lucide-react": "^1.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "vite": "^5.2.0"
   }
 }
