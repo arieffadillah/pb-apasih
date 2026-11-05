@@ -3,7 +3,6 @@ import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged
 } from 'firebase/auth';
@@ -15,8 +14,7 @@ import {
   addDoc, 
   updateDoc, 
   deleteDoc, 
-  setDoc,
-  getDoc
+  setDoc
 } from 'firebase/firestore';
 import { 
   Users, 
@@ -80,7 +78,7 @@ if (isConfigValid) {
 // Helper untuk format rupiah
 const formatRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num || 0);
 
-// Helper untuk membuat file PDF Rekap Pembayaran
+// Helper untuk membuat file PDF Rekap Pembayaran (Fitur #3)
 const generatePDF = async (titleDate, billingData, payments) => {
   const loadScript = (src) => {
     return new Promise((resolve, reject) => {
@@ -220,7 +218,7 @@ const FirebaseWarning = () => (
   </div>
 );
 
-// --- Komponen Login & Register ---
+// --- Komponen Login (Fitur #4: Khusus Pengurus, Opsi Daftar Dihilangkan) ---
 const AuthView = ({ auth }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -697,7 +695,7 @@ const PertandinganView = ({ user, settings }) => {
         <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
           <Swords size={20} className="text-blue-600"/> Sesi Bermain
         </h2>
-        {/* Fitur 2: Kalender & Sesi Sesi Sebelumnya */}
+        {/* Selector Kalender & Sesi Sebelumnya */}
         <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-xl text-xs">
           <Calendar size={14} className="text-blue-600" />
           <select 
@@ -789,7 +787,7 @@ const MatchAttendance = ({ user, session, updateSessionState, onNext }) => {
     updateSessionState({ ...session, presentMembers: updatedPresent });
   };
 
-  // Fitur 1: Toggle Pilih Semua (Select All)
+  // Toggle Pilih Semua (Select All)
   const isAllSelected = useMemo(() => {
     if (members.length === 0) return false;
     return members.every(m => session.presentMembers[m.id]);
@@ -825,7 +823,6 @@ const MatchAttendance = ({ user, session, updateSessionState, onNext }) => {
         <div className="flex justify-between items-center mb-3 border-b pb-2">
           <h3 className="font-semibold text-gray-700">Ceklist Member</h3>
           <div className="flex items-center gap-2">
-            {/* Tombol Toggle Pilih Semua */}
             <button
               onClick={toggleSelectAll}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
@@ -881,6 +878,7 @@ const MatchAttendance = ({ user, session, updateSessionState, onNext }) => {
   );
 };
 
+// Fitur #1: Pilihan Pemain Unik per Lapangan
 const MatchPlay = ({ user, session, courts, setCourts }) => {
   const [members, setMembers] = useState([]);
   const [alertModal, setAlertModal] = useState({ isOpen: false, message: '' });
@@ -929,7 +927,7 @@ const MatchPlay = ({ user, session, courts, setCourts }) => {
         const courtId = i + 1;
         const c = courts[courtId] || { p1: '', p2: '', p3: '', p4: '', balls: 0 };
         
-        // Komponen PlayerSelect yang menyembunyikan pemain yang sudah terpilih di slot lain pada lapangan ini
+        // Filter unik: Sembunyikan pemain yang sudah terpilih di slot lain pada lapangan ini
         const PlayerSelect = ({ field, placeholder }) => {
           const selectedInOtherSlots = ['p1', 'p2', 'p3', 'p4']
             .filter(f => f !== field)
@@ -994,7 +992,7 @@ const MatchPlay = ({ user, session, courts, setCourts }) => {
   );
 };
 
-// Fitur 2: Rekapan Match dengan Tombol Edit Bola
+// Rekapan Match dengan Tombol Edit Bola
 const MatchRecap = ({ user, sessionId }) => {
   const [matches, setMatches] = useState([]);
   const [editingMatchId, setEditingMatchId] = useState(null);
@@ -1036,7 +1034,6 @@ const MatchRecap = ({ user, sessionId }) => {
             <div className="flex justify-between items-center mb-3">
               <span className="text-[10px] text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded">Jam {new Date(m.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} • Lap {m.courtId}</span>
               
-              {/* Edit Bola Inline / Popup */}
               {editingMatchId === m.id ? (
                 <div className="flex items-center gap-1">
                   <input 
@@ -1073,7 +1070,7 @@ const MatchRecap = ({ user, sessionId }) => {
   );
 };
 
-// Sub Menu Bayar (Export PDF + Pembayaran Permanen + Belum Bayar Pastel)
+// Fitur #2 & #3: Menu Pembayaran (Status Pastel Belum Bayar + Unduh PDF Resmi)
 const MatchPayment = ({ user, session, updateSessionState, settings }) => {
   const [matches, setMatches] = useState([]);
   const [showQR, setShowQR] = useState(false);
