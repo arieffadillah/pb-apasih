@@ -110,6 +110,7 @@ const generatePDF = async (titleDate, billingData, payments) => {
     const tableRows = [];
 
     billingData.forEach((row, i) => {
+      const currentMethod = payments[row.id] || 'Belum Bayar';
       const rowData = [
         i + 1,
         row.name,
@@ -118,7 +119,7 @@ const generatePDF = async (titleDate, billingData, payments) => {
         `Rp ${row.ballCost.toLocaleString('id-ID')}`,
         `Rp ${row.visitCost.toLocaleString('id-ID')}`,
         `Rp ${row.totalCost.toLocaleString('id-ID')}`,
-        payments[row.id] || '-'
+        currentMethod
       ];
       tableRows.push(rowData);
     });
@@ -140,11 +141,39 @@ const generatePDF = async (titleDate, billingData, payments) => {
       }
     });
 
+    // Perhitungan Total & Breakdown Rincian
     const totalAll = billingData.reduce((acc, r) => acc + r.totalCost, 0);
+    const totalVisit = billingData.reduce((acc, r) => acc + r.visitCost, 0);
+    const totalBall = billingData.reduce((acc, r) => acc + r.ballCost, 0);
+
+    const totalCash = billingData.filter(r => payments[r.id] === 'Cash').reduce((acc, r) => acc + r.totalCost, 0);
+    const totalQR = billingData.filter(r => payments[r.id] === 'QR').reduce((acc, r) => acc + r.totalCost, 0);
+    const totalTrf = billingData.filter(r => payments[r.id] === 'Trf').reduce((acc, r) => acc + r.totalCost, 0);
+    const totalUnpaid = billingData.filter(r => !payments[r.id] || payments[r.id] === 'Belum Bayar').reduce((acc, r) => acc + r.totalCost, 0);
+
     const finalY = doc.lastAutoTable.finalY + 8;
+
+    // 1. Total Penerimaan Sesi
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Total Penerimaan Sesi: Rp ${totalAll.toLocaleString('id-ID')}`, 14, finalY);
+    doc.text(`TOTAL PENERIMAAN SESI: Rp ${totalAll.toLocaleString('id-ID')}`, 14, finalY);
+
+    // 2. Rincian Biaya
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`RINCIAN BIAYA:`, 14, finalY + 7);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`• Visit : Rp ${totalVisit.toLocaleString('id-ID')}`, 18, finalY + 12);
+    doc.text(`• Bola  : Rp ${totalBall.toLocaleString('id-ID')}`, 18, finalY + 17);
+
+    // 3. Rincian Metode Pembayaran
+    doc.setFont('helvetica', 'bold');
+    doc.text(`METODE PEMBAYARAN:`, 110, finalY + 7);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`• Cash         : Rp ${totalCash.toLocaleString('id-ID')}`, 114, finalY + 12);
+    doc.text(`• QR            : Rp ${totalQR.toLocaleString('id-ID')}`, 114, finalY + 17);
+    doc.text(`• Trf             : Rp ${totalTrf.toLocaleString('id-ID')}`, 114, finalY + 22);
+    doc.text(`• Belum Bayar : Rp ${totalUnpaid.toLocaleString('id-ID')}`, 114, finalY + 27);
 
     doc.save(`Rekap_Pembayaran_${titleDate.replace(/ /g, '_')}.pdf`);
   } catch (err) {
@@ -193,7 +222,6 @@ const FirebaseWarning = () => (
 
 // --- Komponen Login & Register ---
 const AuthView = ({ auth }) => {
-  const [isLoginMode, setIsLoginMode] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -205,28 +233,17 @@ const AuthView = ({ auth }) => {
     setIsLoading(true);
 
     try {
-      if (isLoginMode) {
-        await signInWithEmailAndPassword(auth, email, password);
-      } else {
-        await createUserWithEmailAndPassword(auth, email, password);
-      }
+      await signInWithEmailAndPassword(auth, email, password);
     } catch (err) {
       console.error("Auth Exception:", err);
       const code = err.code || 'unknown';
-      const msg = err.message || '';
       
       if (code === 'auth/invalid-email') {
         setErrorMsg('Format email tidak valid. Gunakan format seperti: nama@gmail.com');
       } else if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
         setErrorMsg('Email atau password salah.');
-      } else if (code === 'auth/email-already-in-use') {
-        setErrorMsg('Email ini sudah terdaftar. Silakan ganti email atau pilih Masuk.');
-      } else if (code === 'auth/weak-password') {
-        setErrorMsg('Password terlalu pendek (wajib minimal 6 karakter).');
-      } else if (code === 'auth/operation-not-allowed') {
-        setErrorMsg('Metode Email/Password belum aktif di Firebase Console.');
       } else {
-        setErrorMsg(`Gagal: [${code}] ${msg}`);
+        setErrorMsg(`Gagal masuk: Periksa kembali email dan password Anda.`);
       }
     }
     setIsLoading(false);
@@ -240,7 +257,7 @@ const AuthView = ({ auth }) => {
             PB
           </div>
           <h2 className="text-2xl font-bold text-gray-800">PB APASIH</h2>
-          <p className="text-gray-500 text-sm mt-1">{isLoginMode ? 'Login Pengurus' : 'Daftar Admin Baru'}</p>
+          <p className="text-gray-500 text-sm mt-1">Login Pengurus</p>
         </div>
 
         {errorMsg && (
@@ -273,7 +290,7 @@ const AuthView = ({ auth }) => {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password (minimal 6 karakter)"
+              placeholder="Password"
               className="w-full pl-12 p-3.5 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-sm"
             />
           </div>
@@ -283,21 +300,9 @@ const AuthView = ({ auth }) => {
             disabled={isLoading}
             className="w-full bg-blue-800 text-white p-3.5 rounded-2xl font-bold hover:bg-blue-900 transition-colors mt-2 shadow-lg disabled:opacity-70 text-sm"
           >
-            {isLoading ? 'Memproses...' : (isLoginMode ? 'Masuk' : 'Buat Akun')}
+            {isLoading ? 'Memproses...' : 'Masuk'}
           </button>
         </form>
-
-        <div className="mt-8 text-center text-sm">
-          <p className="text-gray-500">
-            {isLoginMode ? "Belum punya akun?" : "Sudah punya akun?"}{" "}
-            <button 
-              onClick={() => { setIsLoginMode(!isLoginMode); setErrorMsg(''); }} 
-              className="text-blue-700 font-bold hover:underline"
-            >
-              {isLoginMode ? 'Daftar di sini' : 'Masuk di sini'}
-            </button>
-          </p>
-        </div>
       </div>
     </div>
   );
@@ -924,12 +929,26 @@ const MatchPlay = ({ user, session, courts, setCourts }) => {
         const courtId = i + 1;
         const c = courts[courtId] || { p1: '', p2: '', p3: '', p4: '', balls: 0 };
         
-        const PlayerSelect = ({ field, placeholder }) => (
-          <select value={c[field]} onChange={(e) => updateCourt(courtId, field, e.target.value)} className="w-full p-2.5 text-xs border border-gray-300 rounded-lg bg-white mb-2 shadow-sm focus:ring-2 focus:ring-blue-500">
-            <option value="">{placeholder}</option>
-            {availablePlayers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        );
+        // Komponen PlayerSelect yang menyembunyikan pemain yang sudah terpilih di slot lain pada lapangan ini
+        const PlayerSelect = ({ field, placeholder }) => {
+          const selectedInOtherSlots = ['p1', 'p2', 'p3', 'p4']
+            .filter(f => f !== field)
+            .map(f => c[f])
+            .filter(Boolean);
+
+          const selectablePlayers = availablePlayers.filter(p => !selectedInOtherSlots.includes(p.id));
+
+          return (
+            <select 
+              value={c[field]} 
+              onChange={(e) => updateCourt(courtId, field, e.target.value)} 
+              className="w-full p-2.5 text-xs border border-gray-300 rounded-lg bg-white mb-2 shadow-sm focus:ring-2 focus:ring-blue-500 font-medium text-gray-800"
+            >
+              <option value="">{placeholder}</option>
+              {selectablePlayers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          );
+        };
 
         return (
           <Card key={courtId} className="border-t-4 border-t-blue-600 shadow-md">
@@ -1054,7 +1073,7 @@ const MatchRecap = ({ user, sessionId }) => {
   );
 };
 
-// Fitur 3: Sub Menu Bayar (Export PDF + Sesi Sebelumnya + Pembayaran Permanen)
+// Sub Menu Bayar (Export PDF + Pembayaran Permanen + Belum Bayar Pastel)
 const MatchPayment = ({ user, session, updateSessionState, settings }) => {
   const [matches, setMatches] = useState([]);
   const [showQR, setShowQR] = useState(false);
@@ -1114,13 +1133,11 @@ const MatchPayment = ({ user, session, updateSessionState, settings }) => {
     }).sort((a,b) => b.totalCost - a.totalCost);
   }, [matches, session.visitors, session.presentMembers, settings]);
 
-  // Fitur 3 Point 3: Pilihan metode pembayaran disimpan di Firestore sehingga tidak hilang setelah diunduh/refresh
   const handlePaymentChange = (personId, method) => {
     const updatedPayments = { ...(session.payments || {}), [personId]: method };
     updateSessionState({ ...session, payments: updatedPayments });
   };
 
-  // Fitur 3 Point 1: Unduhan PDF dengan judul REKAP PEMBAYARAN TANGGAL [sesi]
   const handleDownloadPDF = async () => {
     setIsGeneratingPDF(true);
     await generatePDF(session.date, billingData, session.payments || {});
@@ -1156,32 +1173,41 @@ const MatchPayment = ({ user, session, updateSessionState, settings }) => {
             </thead>
             <tbody>
               {billingData.length===0 && <tr><td colSpan="4" className="text-center p-6 text-gray-500">Belum ada data tagihan di sesi ini.</td></tr>}
-              {billingData.map((row) => (
-                <tr key={row.id} className="border-b border-gray-100">
-                  <td className="p-3">
-                    <div className="font-semibold text-gray-800">{row.name}</div>
-                    {row.isVisit && (
-                      <div className="mt-1 text-[9px] text-orange-600 font-bold bg-orange-50 border border-orange-200 inline-block px-1.5 py-0.5 rounded shadow-sm">
-                        +Visit {formatRp(row.visitCost)}
-                      </div>
-                    )}
-                  </td>
-                  <td className="p-3 text-center font-mono text-gray-700">{row.ballsUsed.toFixed(1)}</td>
-                  <td className="p-3 text-right font-bold text-red-600">{formatRp(row.totalCost)}</td>
-                  <td className="p-2">
-                    <select 
-                      value={(session.payments || {})[row.id] || ''} 
-                      onChange={(e) => handlePaymentChange(row.id, e.target.value)} 
-                      className="w-full p-2 bg-gray-50 border border-gray-200 rounded font-semibold text-gray-700"
-                    >
-                      <option value="">--</option>
-                      <option value="Cash">Cash</option>
-                      <option value="QR">QR</option>
-                      <option value="Trf">Trf</option>
-                    </select>
-                  </td>
-                </tr>
-              ))}
+              {billingData.map((row) => {
+                const currentMethod = (session.payments || {})[row.id] || 'Belum Bayar';
+                const isUnpaid = currentMethod === 'Belum Bayar' || !currentMethod;
+
+                return (
+                  <tr key={row.id} className={`border-b transition-colors ${isUnpaid ? 'bg-amber-50/80 border-amber-200' : 'bg-white border-gray-100'}`}>
+                    <td className="p-3">
+                      <div className="font-semibold text-gray-800">{row.name}</div>
+                      {row.isVisit && (
+                        <div className="mt-1 text-[9px] text-orange-600 font-bold bg-orange-50 border border-orange-200 inline-block px-1.5 py-0.5 rounded shadow-sm">
+                          +Visit {formatRp(row.visitCost)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 text-center font-mono text-gray-700">{row.ballsUsed.toFixed(1)}</td>
+                    <td className="p-3 text-right font-bold text-red-600">{formatRp(row.totalCost)}</td>
+                    <td className="p-2">
+                      <select 
+                        value={currentMethod} 
+                        onChange={(e) => handlePaymentChange(row.id, e.target.value)} 
+                        className={`w-full p-2 border rounded font-semibold text-xs transition-colors ${
+                          isUnpaid 
+                            ? 'bg-amber-100 text-amber-900 border-amber-300 focus:ring-amber-400' 
+                            : 'bg-gray-50 text-gray-800 border-gray-200 focus:ring-blue-500'
+                        }`}
+                      >
+                        <option value="Belum Bayar">Belum Bayar</option>
+                        <option value="Cash">Cash</option>
+                        <option value="QR">QR</option>
+                        <option value="Trf">Trf</option>
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
