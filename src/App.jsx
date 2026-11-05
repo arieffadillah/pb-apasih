@@ -15,7 +15,8 @@ import {
   addDoc, 
   updateDoc, 
   deleteDoc, 
-  setDoc
+  setDoc,
+  getDoc
 } from 'firebase/firestore';
 import { 
   Users, 
@@ -39,14 +40,17 @@ import {
   Mail,
   Lock,
   AlertTriangle,
-  Info
+  Info,
+  Calendar,
+  CheckCircle2,
+  Circle
 } from 'lucide-react';
 
 // =========================================================================
 // ⚠️ KONFIGURASI FIREBASE PB APASIH ⚠️
 // =========================================================================
 let firebaseConfig = {
-  apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
+  apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHI1U6s",
   authDomain: "pb-apasih.firebaseapp.com",
   projectId: "pb-apasih",
   storageBucket: "pb-apasih.firebasestorage.app",
@@ -72,6 +76,82 @@ if (isConfigValid) {
     console.error("Firebase Init Error:", err);
   }
 }
+
+// Helper untuk format rupiah
+const formatRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num || 0);
+
+// Helper untuk membuat file PDF Rekap Pembayaran
+const generatePDF = async (titleDate, billingData, payments) => {
+  const loadScript = (src) => {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[src="${src}"]`)) return resolve();
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.body.appendChild(s);
+    });
+  };
+
+  try {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js');
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    // Judul Rekap
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`REKAP PEMBAYARAN TANGGAL ${titleDate.toUpperCase()}`, 14, 18);
+
+    // Tabel Data Tagihan
+    const tableColumn = ["No", "Nama Pemain", "Status", "Jml Bola", "Biaya Bola", "Biaya Visit", "Total Tagihan", "Metode"];
+    const tableRows = [];
+
+    billingData.forEach((row, i) => {
+      const rowData = [
+        i + 1,
+        row.name,
+        row.isVisit ? 'Tamu' : 'Member',
+        row.ballsUsed.toFixed(1),
+        `Rp ${row.ballCost.toLocaleString('id-ID')}`,
+        `Rp ${row.visitCost.toLocaleString('id-ID')}`,
+        `Rp ${row.totalCost.toLocaleString('id-ID')}`,
+        payments[row.id] || '-'
+      ];
+      tableRows.push(rowData);
+    });
+
+    doc.autoTable({
+      head: [tableColumn],
+      body: tableRows,
+      startY: 25,
+      theme: 'grid',
+      headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 8.5, cellPadding: 2.5 },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        3: { halign: 'center' },
+        4: { halign: 'right' },
+        5: { halign: 'right' },
+        6: { halign: 'right', fontStyle: 'bold' },
+        7: { halign: 'center' }
+      }
+    });
+
+    const totalAll = billingData.reduce((acc, r) => acc + r.totalCost, 0);
+    const finalY = doc.lastAutoTable.finalY + 8;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Total Penerimaan Sesi: Rp ${totalAll.toLocaleString('id-ID')}`, 14, finalY);
+
+    doc.save(`Rekap_Pembayaran_${titleDate.replace(/ /g, '_')}.pdf`);
+  } catch (err) {
+    console.error("PDF generation failed", err);
+    alert("Gagal membuat PDF. Pastikan internet Anda terhubung.");
+  }
+};
 
 // --- Komponen UI Reusable ---
 const Modal = ({ isOpen, title, message, onConfirm, onCancel, confirmText = "Ya", isAlert = false }) => {
@@ -99,7 +179,6 @@ const Modal = ({ isOpen, title, message, onConfirm, onCancel, confirmText = "Ya"
   );
 };
 
-// Komponen Peringatan jika Firebase Kosong
 const FirebaseWarning = () => (
   <div className="flex h-screen items-center justify-center bg-gray-50 p-6 md:max-w-md md:mx-auto">
     <div className="bg-red-50 border-2 border-red-500 p-6 rounded-2xl shadow-xl text-center">
@@ -108,11 +187,6 @@ const FirebaseWarning = () => (
       <p className="text-gray-700 text-sm mb-4">
         Anda belum memasukkan kode Firebase. Aplikasi tidak bisa tersambung ke database.
       </p>
-      <div className="text-left bg-white p-3 rounded text-xs text-gray-600 border border-gray-200">
-        Buka file <strong>src/App.jsx</strong>, cari tulisan <br/>
-        <code>let firebaseConfig = {'{'} ... {'}'}</code> <br/>
-        lalu isi kembali dengan konfigurasi milik Anda.
-      </div>
     </div>
   </div>
 );
@@ -345,27 +419,12 @@ const Card = ({ children, className = "" }) => (
   </div>
 );
 
-// --- Helper Functions ---
-const formatRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num || 0);
-
-const downloadCSV = (filename, rows) => {
-  const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
-  const encodedUri = encodeURI(csvContent);
-  const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
-  link.setAttribute("download", filename);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
-
 // --- 1. Member View ---
 const MemberView = ({ user, settings }) => {
   const [members, setMembers] = useState([]);
   const [newName, setNewName] = useState('');
   const [newJadwal, setNewJadwal] = useState('Jadwal 1');
   const [isLoading, setIsLoading] = useState(true);
-  const [firestoreError, setFirestoreError] = useState('');
   
   const [viewJadwal, setViewJadwal] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -384,10 +443,8 @@ const MemberView = ({ user, settings }) => {
       membersData.sort((a, b) => a.name.localeCompare(b.name));
       setMembers(membersData);
       setIsLoading(false);
-      setFirestoreError('');
     }, (err) => {
       console.error("Firestore Member Error:", err);
-      setFirestoreError('Gagal terhubung ke Database. Pastikan Firestore Database sudah diaktifkan di Firebase Console.');
       setIsLoading(false);
     });
     return () => unsubscribe();
@@ -530,11 +587,13 @@ const MemberView = ({ user, settings }) => {
   );
 };
 
-
 // --- 2. Pertandingan (Main) View ---
 const PertandinganView = ({ user, settings }) => {
   const [subTab, setSubTab] = useState('lapangan'); 
   const todayStr = new Date().toLocaleDateString('en-CA'); 
+  
+  const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [savedSessions, setSavedSessions] = useState([]);
   
   const [session, setSession] = useState({
     id: todayStr, 
@@ -542,10 +601,78 @@ const PertandinganView = ({ user, settings }) => {
     jadwal: 'Jadwal 1',
     numCourts: 1,
     presentMembers: {}, 
-    visitors: []
+    visitors: [],
+    payments: {}
   });
 
   const [courts, setCourts] = useState({});
+
+  // Fetch daftar tanggal yang pernah punya sesi / match
+  useEffect(() => {
+    if (!user) return;
+    const matchesRef = collection(db, 'artifacts', appId, 'users', user.uid, 'matches');
+    const unsubscribe = onSnapshot(matchesRef, (snapshot) => {
+      const datesSet = new Set();
+      snapshot.forEach(doc => {
+        if (doc.data().sessionId) datesSet.add(doc.data().sessionId);
+      });
+      datesSet.add(todayStr); // selalu sertakan hari ini
+      const datesArr = Array.from(datesSet).sort().reverse();
+      setSavedSessions(datesArr);
+    });
+    return () => unsubscribe();
+  }, [user, todayStr]);
+
+  // Sync / Load Sesi dari Firestore ketika tanggal yang dipilih berganti
+  useEffect(() => {
+    if (!user) return;
+    const sessionDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'sessions', selectedDate);
+    const unsubscribe = onSnapshot(sessionDocRef, (docSnap) => {
+      const formattedDateText = new Date(selectedDate).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setSession({
+          id: selectedDate,
+          date: data.date || formattedDateText,
+          jadwal: data.jadwal || 'Jadwal 1',
+          numCourts: data.numCourts || 1,
+          presentMembers: data.presentMembers || {},
+          visitors: data.visitors || [],
+          payments: data.payments || {}
+        });
+      } else {
+        setSession({
+          id: selectedDate,
+          date: formattedDateText,
+          jadwal: 'Jadwal 1',
+          numCourts: 1,
+          presentMembers: {},
+          visitors: [],
+          payments: {}
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, [user, selectedDate]);
+
+  // Auto-Save data Sesi ke Firestore setiap kali ada perubahan pada kehadiran / visitor / payment
+  const updateSessionState = async (newSessionState) => {
+    setSession(newSessionState);
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'sessions', newSessionState.id), {
+        date: newSessionState.date,
+        jadwal: newSessionState.jadwal,
+        numCourts: newSessionState.numCourts,
+        presentMembers: newSessionState.presentMembers || {},
+        visitors: newSessionState.visitors || [],
+        payments: newSessionState.payments || {},
+        updatedAt: Date.now()
+      }, { merge: true });
+    } catch (err) {
+      console.error("Error saving session to firestore:", err);
+    }
+  };
   
   useEffect(() => {
     setCourts(prev => {
@@ -561,9 +688,26 @@ const PertandinganView = ({ user, settings }) => {
 
   return (
     <div className="animate-in fade-in duration-300 flex flex-col h-full">
-      <h2 className="text-lg font-bold mb-1 text-gray-800 flex items-center gap-2">
-        <Swords size={20} className="text-blue-600"/> Sesi Bermain
-      </h2>
+      <div className="flex justify-between items-center mb-1">
+        <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+          <Swords size={20} className="text-blue-600"/> Sesi Bermain
+        </h2>
+        {/* Fitur 2: Kalender & Sesi Sesi Sebelumnya */}
+        <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-xl text-xs">
+          <Calendar size={14} className="text-blue-600" />
+          <select 
+            value={selectedDate} 
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="bg-transparent font-bold text-blue-900 focus:outline-none cursor-pointer"
+          >
+            {savedSessions.map(d => (
+              <option key={d} value={d}>
+                {d === todayStr ? `Hari Ini (${d})` : d}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
       <p className="text-xs text-gray-500 mb-3">{session.date}</p>
       
       <div className="flex bg-white rounded-xl p-1 shadow-sm mb-4 border border-gray-200 overflow-x-auto hide-scrollbar snap-x">
@@ -579,17 +723,17 @@ const PertandinganView = ({ user, settings }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto pb-4">
-        {subTab === 'lapangan' && <MatchSetup session={session} setSession={setSession} onNext={() => setSubTab('pemain')} settings={settings} />}
-        {subTab === 'pemain' && <MatchAttendance user={user} session={session} setSession={setSession} onNext={() => setSubTab('pertandingan')} />}
+        {subTab === 'lapangan' && <MatchSetup session={session} updateSessionState={updateSessionState} onNext={() => setSubTab('pemain')} settings={settings} />}
+        {subTab === 'pemain' && <MatchAttendance user={user} session={session} updateSessionState={updateSessionState} onNext={() => setSubTab('pertandingan')} />}
         {subTab === 'pertandingan' && <MatchPlay user={user} session={session} courts={courts} setCourts={setCourts} />}
         {subTab === 'rekapan' && <MatchRecap user={user} sessionId={session.id} />}
-        {subTab === 'bayar' && <MatchPayment user={user} session={session} settings={settings} />}
+        {subTab === 'bayar' && <MatchPayment user={user} session={session} updateSessionState={updateSessionState} settings={settings} />}
       </div>
     </div>
   );
 };
 
-const MatchSetup = ({ session, setSession, onNext, settings }) => {
+const MatchSetup = ({ session, updateSessionState, onNext, settings }) => {
   const availableSchedules = Array.from({ length: settings?.jumlahJadwal || 2 }, (_, i) => `Jadwal ${i + 1}`);
   return (
     <Card className="animate-in slide-in-from-left-4 duration-300">
@@ -597,19 +741,19 @@ const MatchSetup = ({ session, setSession, onNext, settings }) => {
       <div className="space-y-4">
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Tanggal</label>
-          <div className="w-full p-3 border border-gray-200 rounded-xl bg-gray-50 text-gray-700 text-sm">
+          <div className="w-full p-3 border border-gray-200 rounded-xl bg-gray-50 text-gray-700 text-sm font-medium">
             {session.date}
           </div>
         </div>
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Pilih Jadwal</label>
-          <select value={session.jadwal} onChange={(e) => setSession({...session, jadwal: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 text-sm">
+          <select value={session.jadwal} onChange={(e) => updateSessionState({...session, jadwal: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-blue-900">
             {availableSchedules.map(j => <option key={j} value={j}>{j}</option>)}
           </select>
         </div>
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Jumlah Lapangan</label>
-          <select value={session.numCourts} onChange={(e) => setSession({...session, numCourts: parseInt(e.target.value)})} className="w-full p-3 border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 text-sm">
+          <select value={session.numCourts} onChange={(e) => updateSessionState({...session, numCourts: parseInt(e.target.value)})} className="w-full p-3 border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-blue-900">
             {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n} Lapangan</option>)}
           </select>
         </div>
@@ -621,7 +765,7 @@ const MatchSetup = ({ session, setSession, onNext, settings }) => {
   );
 };
 
-const MatchAttendance = ({ user, session, setSession, onNext }) => {
+const MatchAttendance = ({ user, session, updateSessionState, onNext }) => {
   const [members, setMembers] = useState([]);
   const [newVisitor, setNewVisitor] = useState('');
 
@@ -635,16 +779,39 @@ const MatchAttendance = ({ user, session, setSession, onNext }) => {
     return () => unsubscribe();
   }, [user, session.jadwal]);
 
-  const togglePresence = (id) => setSession(p => ({...p, presentMembers: { ...p.presentMembers, [id]: !p.presentMembers[id] }}));
+  const togglePresence = (id) => {
+    const updatedPresent = { ...session.presentMembers, [id]: !session.presentMembers[id] };
+    updateSessionState({ ...session, presentMembers: updatedPresent });
+  };
+
+  // Fitur 1: Toggle Pilih Semua (Select All)
+  const isAllSelected = useMemo(() => {
+    if (members.length === 0) return false;
+    return members.every(m => session.presentMembers[m.id]);
+  }, [members, session.presentMembers]);
+
+  const toggleSelectAll = () => {
+    const updatedPresent = { ...session.presentMembers };
+    const targetState = !isAllSelected;
+    members.forEach(m => {
+      updatedPresent[m.id] = targetState;
+    });
+    updateSessionState({ ...session, presentMembers: updatedPresent });
+  };
   
   const addVisitor = (e) => {
     e.preventDefault();
     if (!newVisitor.trim()) return;
-    setSession(p => ({ ...p, visitors: [...p.visitors, { id: `v_${Date.now()}`, name: `${newVisitor.trim()} (Tamu)`, isVisit: true }] }));
+    const updatedVisitors = [...session.visitors, { id: `v_${Date.now()}`, name: `${newVisitor.trim()} (Tamu)`, isVisit: true }];
+    updateSessionState({ ...session, visitors: updatedVisitors });
     setNewVisitor('');
   };
   
-  const removeVisitor = (id) => setSession(p => ({ ...p, visitors: p.visitors.filter(v => v.id !== id) }));
+  const removeVisitor = (id) => {
+    const updatedVisitors = session.visitors.filter(v => v.id !== id);
+    updateSessionState({ ...session, visitors: updatedVisitors });
+  };
+
   const presentCount = Object.values(session.presentMembers).filter(Boolean).length + session.visitors.length;
 
   return (
@@ -652,10 +819,24 @@ const MatchAttendance = ({ user, session, setSession, onNext }) => {
       <Card>
         <div className="flex justify-between items-center mb-3 border-b pb-2">
           <h3 className="font-semibold text-gray-700">Ceklist Member</h3>
-          <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-bold">{session.jadwal}</span>
+          <div className="flex items-center gap-2">
+            {/* Tombol Toggle Pilih Semua */}
+            <button
+              onClick={toggleSelectAll}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                isAllSelected 
+                  ? 'bg-blue-600 text-white shadow-sm' 
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
+              }`}
+            >
+              {isAllSelected ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+              {isAllSelected ? 'Batal Semua' : 'Pilih Semua'}
+            </button>
+            <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-bold">{session.jadwal}</span>
+          </div>
         </div>
         <div className="max-h-64 overflow-y-auto space-y-1 mb-2">
-          {members.length===0 && <p className="text-xs text-gray-500 text-center py-4">Kosong.</p>}
+          {members.length===0 && <p className="text-xs text-gray-500 text-center py-4">Tidak ada member di {session.jadwal}.</p>}
           {members.map(m => {
             const isP = session.presentMembers[m.id];
             return (
@@ -794,8 +975,11 @@ const MatchPlay = ({ user, session, courts, setCourts }) => {
   );
 };
 
+// Fitur 2: Rekapan Match dengan Tombol Edit Bola
 const MatchRecap = ({ user, sessionId }) => {
   const [matches, setMatches] = useState([]);
+  const [editingMatchId, setEditingMatchId] = useState(null);
+  const [editBalls, setEditBalls] = useState(0);
 
   useEffect(() => {
     if (!user) return;
@@ -807,6 +991,18 @@ const MatchRecap = ({ user, sessionId }) => {
     return () => unsubscribe();
   }, [user, sessionId]);
 
+  const saveEditBola = async (matchId) => {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'matches', matchId), {
+        balls: Number(editBalls) || 0
+      });
+      setEditingMatchId(null);
+    } catch (err) {
+      console.error("Error updating balls:", err);
+    }
+  };
+
   return (
     <div className="animate-in fade-in duration-300 space-y-3">
       <div className="flex justify-between items-center bg-gray-800 text-white p-3 rounded-xl shadow">
@@ -814,13 +1010,38 @@ const MatchRecap = ({ user, sessionId }) => {
         <span className="text-xs font-mono bg-gray-700 px-2 py-1 rounded">{matches.length} Laga</span>
       </div>
       {matches.length === 0 ? (
-        <p className="text-center text-gray-500 py-8 bg-white rounded-xl border border-dashed text-sm">Belum ada laga selesai.</p>
+        <p className="text-center text-gray-500 py-8 bg-white rounded-xl border border-dashed text-sm">Belum ada laga selesai di sesi ini.</p>
       ) : (
         matches.map(m => (
           <div key={m.id} className="bg-white rounded-xl p-3.5 shadow-sm border border-gray-200 border-l-4 border-l-green-500">
             <div className="flex justify-between items-center mb-3">
               <span className="text-[10px] text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded">Jam {new Date(m.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} • Lap {m.courtId}</span>
-              <span className="bg-green-100 text-green-800 text-[10px] font-black px-2 py-1 rounded-full">{m.balls} Bola/org</span>
+              
+              {/* Edit Bola Inline / Popup */}
+              {editingMatchId === m.id ? (
+                <div className="flex items-center gap-1">
+                  <input 
+                    type="number" 
+                    step="0.5" 
+                    value={editBalls} 
+                    onChange={(e) => setEditBalls(e.target.value)} 
+                    className="w-14 p-1 text-xs border border-blue-400 rounded text-center font-bold"
+                  />
+                  <button onClick={() => saveEditBola(m.id)} className="bg-green-600 text-white p-1 rounded text-[10px] font-bold">Simpan</button>
+                  <button onClick={() => setEditingMatchId(null)} className="bg-gray-200 text-gray-700 p-1 rounded text-[10px] font-bold">Batal</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <span className="bg-green-100 text-green-800 text-[10px] font-black px-2 py-1 rounded-full">{m.balls} Bola/org</span>
+                  <button 
+                    onClick={() => { setEditingMatchId(m.id); setEditBalls(m.balls); }} 
+                    className="p-1 text-blue-600 hover:bg-blue-50 rounded" 
+                    title="Edit Jumlah Bola"
+                  >
+                    <Edit size={14} />
+                  </button>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="bg-gray-50 p-2 rounded-lg"><p className="font-bold text-gray-600 mb-1 border-b pb-1 text-[10px]">TIM A</p><p className="truncate">{m.playerNames?.[0]}</p><p className="truncate">{m.playerNames?.[1]}</p></div>
@@ -833,10 +1054,11 @@ const MatchRecap = ({ user, sessionId }) => {
   );
 };
 
-const MatchPayment = ({ user, session, settings }) => {
+// Fitur 3: Sub Menu Bayar (Export PDF + Sesi Sebelumnya + Pembayaran Permanen)
+const MatchPayment = ({ user, session, updateSessionState, settings }) => {
   const [matches, setMatches] = useState([]);
   const [showQR, setShowQR] = useState(false);
-  const [payments, setPayments] = useState({});
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -853,8 +1075,10 @@ const MatchPayment = ({ user, session, settings }) => {
     const hargaBola = Number(settings?.hargaBola) || 0;
     const hargaVisit = Number(settings?.hargaVisit) || 0;
     
-    session.visitors.forEach(v => { stats[v.id] = { name: v.name, isVisit: true, ballsUsed: 0 }; });
-    Object.keys(session.presentMembers).forEach(mid => { if (session.presentMembers[mid]) stats[mid] = { name: 'Member', isVisit: false, ballsUsed: 0 }; });
+    (session.visitors || []).forEach(v => { stats[v.id] = { name: v.name, isVisit: true, ballsUsed: 0 }; });
+    Object.keys(session.presentMembers || {}).forEach(mid => { 
+      if (session.presentMembers[mid]) stats[mid] = { name: 'Member', isVisit: false, ballsUsed: 0 }; 
+    });
     
     matches.forEach(m => {
       const ballsPerPerson = Number(m.balls) || 0;
@@ -890,19 +1114,17 @@ const MatchPayment = ({ user, session, settings }) => {
     }).sort((a,b) => b.totalCost - a.totalCost);
   }, [matches, session.visitors, session.presentMembers, settings]);
 
-  const handleDownload = () => {
-    const rows = [["No", "Nama", "Status", "Jml Bola", "Harga Bola (Rp)", "Biaya Visit (Rp)", "Total Tagihan (Rp)", "Metode"]];
-    billingData.forEach((r, i) => rows.push([
-      i+1, 
-      r.name, 
-      r.isVisit ? 'Tamu' : 'Member',
-      r.ballsUsed.toFixed(1),
-      r.ballCost,
-      r.visitCost,
-      r.totalCost, 
-      payments[r.id]||'-'
-    ]));
-    downloadCSV(`Tagihan_${session.date}.csv`, rows);
+  // Fitur 3 Point 3: Pilihan metode pembayaran disimpan di Firestore sehingga tidak hilang setelah diunduh/refresh
+  const handlePaymentChange = (personId, method) => {
+    const updatedPayments = { ...(session.payments || {}), [personId]: method };
+    updateSessionState({ ...session, payments: updatedPayments });
+  };
+
+  // Fitur 3 Point 1: Unduhan PDF dengan judul REKAP PEMBAYARAN TANGGAL [sesi]
+  const handleDownloadPDF = async () => {
+    setIsGeneratingPDF(true);
+    await generatePDF(session.date, billingData, session.payments || {});
+    setIsGeneratingPDF(false);
   };
 
   if (showQR) return (
@@ -918,18 +1140,22 @@ const MatchPayment = ({ user, session, settings }) => {
   return (
     <div className="animate-in fade-in duration-300">
       <div className="flex gap-2 mb-4">
-        <button onClick={() => setShowQR(true)} className="flex-1 bg-blue-600 text-white p-3 rounded-xl font-bold flex justify-center gap-2 hover:bg-blue-700 shadow text-sm transition"><QrCode size={18} /> SCAN QR</button>
-        <button onClick={handleDownload} className="flex-1 bg-green-600 text-white p-3 rounded-xl font-bold flex justify-center gap-2 hover:bg-green-700 shadow text-sm transition"><Download size={18} /> UNDUH</button>
+        <button onClick={() => setShowQR(true)} className="flex-1 bg-blue-600 text-white p-3 rounded-xl font-bold flex justify-center items-center gap-2 hover:bg-blue-700 shadow text-sm transition"><QrCode size={18} /> SCAN QR</button>
+        <button onClick={handleDownloadPDF} disabled={isGeneratingPDF} className="flex-1 bg-green-600 text-white p-3 rounded-xl font-bold flex justify-center items-center gap-2 hover:bg-green-700 shadow text-sm transition disabled:opacity-50">
+          <Download size={18} /> {isGeneratingPDF ? 'Mencetak...' : 'UNDUH PDF'}
+        </button>
       </div>
       <Card className="p-0 overflow-hidden border-gray-200">
-        <div className="bg-gray-800 text-white p-3 text-center text-xs font-bold">TAGIHAN SESI INI</div>
+        <div className="bg-gray-800 text-white p-3 text-center text-xs font-bold uppercase tracking-wider">
+          REKAP PEMBAYARAN TANGGAL {session.date.toUpperCase()}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-gray-100 text-gray-600 uppercase">
               <tr><th className="p-3">Nama</th><th className="p-3 text-center">Bola</th><th className="p-3 text-right">Total</th><th className="p-3">Aksi</th></tr>
             </thead>
             <tbody>
-              {billingData.length===0 && <tr><td colSpan="4" className="text-center p-6 text-gray-500">Kosong.</td></tr>}
+              {billingData.length===0 && <tr><td colSpan="4" className="text-center p-6 text-gray-500">Belum ada data tagihan di sesi ini.</td></tr>}
               {billingData.map((row) => (
                 <tr key={row.id} className="border-b border-gray-100">
                   <td className="p-3">
@@ -943,8 +1169,15 @@ const MatchPayment = ({ user, session, settings }) => {
                   <td className="p-3 text-center font-mono text-gray-700">{row.ballsUsed.toFixed(1)}</td>
                   <td className="p-3 text-right font-bold text-red-600">{formatRp(row.totalCost)}</td>
                   <td className="p-2">
-                    <select value={payments[row.id] || ''} onChange={(e) => setPayments(p => ({...p, [row.id]: e.target.value}))} className="w-full p-2 bg-gray-50 border border-gray-200 rounded">
-                      <option value="">--</option><option value="Cash">Cash</option><option value="QR">QR</option><option value="Trf">Trf</option>
+                    <select 
+                      value={(session.payments || {})[row.id] || ''} 
+                      onChange={(e) => handlePaymentChange(row.id, e.target.value)} 
+                      className="w-full p-2 bg-gray-50 border border-gray-200 rounded font-semibold text-gray-700"
+                    >
+                      <option value="">--</option>
+                      <option value="Cash">Cash</option>
+                      <option value="QR">QR</option>
+                      <option value="Trf">Trf</option>
                     </select>
                   </td>
                 </tr>
@@ -956,7 +1189,6 @@ const MatchPayment = ({ user, session, settings }) => {
     </div>
   );
 };
-
 
 // --- 3. Kas (Cash Flow) View ---
 const KasView = ({ user }) => {
@@ -996,17 +1228,6 @@ const KasView = ({ user }) => {
     } catch (err) { console.error(err); }
   };
 
-  const handleDownloadKas = () => {
-    const rows = [["Tanggal", "Keterangan", "Tipe", "Nominal (Rp)"]];
-    filtered.forEach((t) => rows.push([
-      new Date(t.timestamp).toLocaleDateString('id-ID'),
-      t.description,
-      t.type,
-      t.amount
-    ]));
-    downloadCSV(`Laporan_Kas_${filterMonth}.csv`, rows);
-  }
-
   const filtered = transactions.filter(t => {
     const d = new Date(t.timestamp);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === filterMonth;
@@ -1017,8 +1238,7 @@ const KasView = ({ user }) => {
     <div className="animate-in fade-in duration-300">
       <h2 className="text-lg font-bold mb-4 text-gray-800 flex items-center gap-2"><Wallet size={20} className="text-blue-600"/> Buku Kas</h2>
       <div className="flex gap-2 mb-4">
-        <input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="flex-1 p-3 border border-gray-300 rounded-xl bg-white shadow-sm text-sm font-bold"/>
-        <button onClick={handleDownloadKas} className="bg-gray-800 text-white px-4 rounded-xl flex items-center justify-center gap-2 shadow-sm font-bold text-sm hover:bg-gray-900"><Download size={18} /></button>
+        <input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="w-full p-3 border border-gray-300 rounded-xl bg-white shadow-sm text-sm font-bold text-gray-700"/>
       </div>
 
       <div className={`rounded-2xl p-6 text-white shadow-lg mb-6 ${balance >= 0 ? 'bg-gradient-to-br from-blue-700 to-blue-900' : 'bg-gradient-to-br from-red-500 to-red-700'}`}>
@@ -1067,7 +1287,6 @@ const KasView = ({ user }) => {
   );
 };
 
-
 // --- 4. Database / Settings View ---
 const DatabaseView = ({ user, settings: currentSettings }) => {
   const [localSettings, setLocalSettings] = useState(currentSettings || {
@@ -1114,7 +1333,6 @@ const DatabaseView = ({ user, settings: currentSettings }) => {
     const f = e.target.files[0];
     if (!f) return;
 
-    // Resize gambar secara otomatis agar ukuran base64 kecil (< 150KB)
     const img = new Image();
     const reader = new FileReader();
     reader.onloadend = () => {
