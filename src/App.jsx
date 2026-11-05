@@ -43,10 +43,10 @@ import {
 } from 'lucide-react';
 
 // =========================================================================
-// ⚠️ MASUKKAN KONFIGURASI FIREBASE ANDA DI SINI ⚠️
+// ⚠️ KONFIGURASI FIREBASE PB APASIH ⚠️
 // =========================================================================
 let firebaseConfig = {
-  apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
+  apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHI1U6s",
   authDomain: "pb-apasih.firebaseapp.com",
   projectId: "pb-apasih",
   storageBucket: "pb-apasih.firebasestorage.app",
@@ -54,7 +54,6 @@ let firebaseConfig = {
   appId: "1:801177505066:web:1ac36c0fcece357ea2a253"
 };
 
-// Mode bypass untuk preview (Mencegah error saat config kosong di environment simulator)
 if (typeof __firebase_config !== 'undefined') {
   firebaseConfig = JSON.parse(__firebase_config);
 }
@@ -138,11 +137,23 @@ const AuthView = ({ auth }) => {
         await createUserWithEmailAndPassword(auth, email, password);
       }
     } catch (err) {
-      if (err.code === 'auth/invalid-email') setErrorMsg('Format email salah.');
-      else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') setErrorMsg('Email atau password salah.');
-      else if (err.code === 'auth/email-already-in-use') setErrorMsg('Email ini sudah terdaftar.');
-      else if (err.code === 'auth/weak-password') setErrorMsg('Password minimal 6 karakter.');
-      else setErrorMsg('Terjadi kesalahan sistem. Coba lagi.');
+      console.error("Auth Exception:", err);
+      const code = err.code || 'unknown';
+      const msg = err.message || '';
+      
+      if (code === 'auth/invalid-email') {
+        setErrorMsg('Format email tidak valid. Gunakan format seperti: nama@gmail.com');
+      } else if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+        setErrorMsg('Email atau password salah.');
+      } else if (code === 'auth/email-already-in-use') {
+        setErrorMsg('Email ini sudah terdaftar. Silakan ganti email atau pilih Masuk.');
+      } else if (code === 'auth/weak-password') {
+        setErrorMsg('Password terlalu pendek (wajib minimal 6 karakter).');
+      } else if (code === 'auth/operation-not-allowed') {
+        setErrorMsg('Metode Email/Password belum aktif di Firebase Console.');
+      } else {
+        setErrorMsg(`Gagal: [${code}] ${msg}`);
+      }
     }
     setIsLoading(false);
   };
@@ -174,7 +185,7 @@ const AuthView = ({ auth }) => {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email Admin"
+              placeholder="Email Admin (ex: admin@gmail.com)"
               className="w-full pl-12 p-3.5 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-sm"
             />
           </div>
@@ -188,7 +199,7 @@ const AuthView = ({ auth }) => {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
+              placeholder="Password (minimal 6 karakter)"
               className="w-full pl-12 p-3.5 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-sm"
             />
           </div>
@@ -354,6 +365,7 @@ const MemberView = ({ user, settings }) => {
   const [newName, setNewName] = useState('');
   const [newJadwal, setNewJadwal] = useState('Jadwal 1');
   const [isLoading, setIsLoading] = useState(true);
+  const [firestoreError, setFirestoreError] = useState('');
   
   const [viewJadwal, setViewJadwal] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -371,6 +383,11 @@ const MemberView = ({ user, settings }) => {
       snapshot.forEach((doc) => membersData.push({ id: doc.id, ...doc.data() }));
       membersData.sort((a, b) => a.name.localeCompare(b.name));
       setMembers(membersData);
+      setIsLoading(false);
+      setFirestoreError('');
+    }, (err) => {
+      console.error("Firestore Member Error:", err);
+      setFirestoreError('Gagal terhubung ke Database. Pastikan Firestore Database sudah diaktifkan di Firebase Console.');
       setIsLoading(false);
     });
     return () => unsubscribe();
@@ -519,7 +536,6 @@ const PertandinganView = ({ user, settings }) => {
   const [subTab, setSubTab] = useState('lapangan'); 
   const todayStr = new Date().toLocaleDateString('en-CA'); 
   
-  // State Sesi & Lapangan diangkat (Hoisted) agar tidak hilang saat ganti Tab
   const [session, setSession] = useState({
     id: todayStr, 
     date: new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
@@ -624,7 +640,6 @@ const MatchAttendance = ({ user, session, setSession, onNext }) => {
   const addVisitor = (e) => {
     e.preventDefault();
     if (!newVisitor.trim()) return;
-    // Gunakan ID unik berawalan v_ agar terdeteksi permanen sebagai tamu di perhitungan bayar
     setSession(p => ({ ...p, visitors: [...p.visitors, { id: `v_${Date.now()}`, name: `${newVisitor.trim()} (Tamu)`, isVisit: true }] }));
     setNewVisitor('');
   };
@@ -1067,13 +1082,25 @@ const DatabaseView = ({ user, settings: currentSettings }) => {
     e.preventDefault();
     if (!user) return;
     setIsSaving(true);
+    setSaveMsg('');
     try {
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'master'), {
-        ...localSettings, jumlahJadwal: Number(localSettings.jumlahJadwal), hargaBola: Number(localSettings.hargaBola), hargaVisit: Number(localSettings.hargaVisit), updatedAt: Date.now()
-      });
-      setSaveMsg('Pengaturan Tersimpan!'); setTimeout(() => setSaveMsg(''), 2000);
-    } catch (err) { setSaveMsg('Gagal Menyimpan!'); }
-    setIsSaving(false);
+      const dataToSave = {
+        jumlahJadwal: Number(localSettings.jumlahJadwal) || 2,
+        hargaMember: localSettings.hargaMember || { "Jadwal 1": 0, "Jadwal 2": 0 },
+        hargaBola: Number(localSettings.hargaBola) || 0,
+        hargaVisit: Number(localSettings.hargaVisit) || 0,
+        qrCodeBase64: localSettings.qrCodeBase64 || '',
+        updatedAt: Date.now()
+      };
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'master'), dataToSave);
+      setSaveMsg('✅ Pengaturan Berhasil Disimpan!');
+      setTimeout(() => setSaveMsg(''), 3000);
+    } catch (err) { 
+      console.error("Error saving settings:", err);
+      setSaveMsg(`❌ Gagal Menyimpan: ${err.message || 'Periksa koneksi database'}`); 
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleJadwal = (e) => {
@@ -1086,9 +1113,25 @@ const DatabaseView = ({ user, settings: currentSettings }) => {
   const handleImage = (e) => {
     const f = e.target.files[0];
     if (!f) return;
-    const r = new FileReader();
-    r.onloadend = () => setLocalSettings(p => ({...p, qrCodeBase64: r.result}));
-    r.readAsDataURL(f);
+
+    // Resize gambar secara otomatis agar ukuran base64 kecil (< 150KB)
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      img.src = reader.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 400;
+        const scaleSize = MAX_WIDTH / (img.width || 400);
+        canvas.width = MAX_WIDTH;
+        canvas.height = (img.height || 400) * scaleSize;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const resizedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+        setLocalSettings(p => ({...p, qrCodeBase64: resizedBase64}));
+      };
+    };
+    reader.readAsDataURL(f);
   };
 
   return (
