@@ -15,7 +15,8 @@ import {
   addDoc, 
   updateDoc, 
   deleteDoc, 
-  setDoc
+  setDoc,
+  getDocs
 } from 'firebase/firestore';
 
 // --- React Environment Normalization Patch ---
@@ -77,6 +78,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
     case 'circle': return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/></svg>;
     case 'eye': return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
     case 'user-check': return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>;
+    case 'refresh': return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.59-8.21l-3.25 3.25"/></svg>;
     default: return null;
   }
 };
@@ -1460,6 +1462,47 @@ const DatabaseView = ({ user, settings: currentSettings }) => {
     }
   };
 
+  const handleMigrateData = async () => {
+    if (!db || !user) return;
+    if (!window.confirm("PENTING: Apakah Anda yakin ingin memulihkan data lama? Proses ini akan menyalin data dari penyimpanan lama ke penyimpanan publik yang baru.")) return;
+
+    setIsSaving(true);
+    setSaveMsg('Sedang menarik data lama...');
+
+    try {
+      const collectionsToMigrate = ['members', 'sessions', 'matches', 'transactions'];
+      let totalMigrated = 0;
+
+      for (const col of collectionsToMigrate) {
+        const oldRef = collection(db, 'artifacts', appId, 'users', user.uid, col);
+        const newRef = collection(db, 'artifacts', appId, 'public', 'data', col);
+        
+        const snap = await getDocs(oldRef);
+        const promises = [];
+        
+        snap.forEach(d => {
+          promises.push(setDoc(doc(newRef, d.id), d.data(), { merge: true }));
+        });
+        
+        await Promise.all(promises);
+        totalMigrated += promises.length;
+      }
+      
+      if (totalMigrated > 0) {
+        setSaveMsg('✅ Data lama berhasil dipulihkan!');
+      } else {
+        setSaveMsg('ℹ️ Tidak ada data lama yang ditemukan.');
+      }
+      
+    } catch (err) {
+      console.error("Migration Error:", err);
+      setSaveMsg('❌ Gagal menarik data. Periksa koneksi internet.');
+    } finally {
+      setTimeout(() => setSaveMsg(''), 4000);
+      setIsSaving(false);
+    }
+  };
+
   const handleJadwal = (e) => {
     const c = parseInt(e.target.value);
     const hm = { ...(localSettings.hargaMember || {}) };
@@ -1547,6 +1590,23 @@ const DatabaseView = ({ user, settings: currentSettings }) => {
         </button>
         {saveMsg && <div className="fixed top-20 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-2xl z-50 text-sm font-bold animate-in slide-in-from-top-4">{safeString(saveMsg)}</div>}
       </form>
+      
+      {/* TOMBOL PEMULIHAN DATA LAMA */}
+      <Card className="border-red-200 bg-red-50 mt-8">
+        <h3 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-2"><Icon name="refresh" size={16} /> Zona Pemulihan Data</h3>
+        <p className="text-xs text-red-600 mb-4 leading-relaxed">
+          Gunakan tombol ini <strong>HANYA JIKA</strong> Anda ingin mengembalikan semua data lama (Member, Kas, Riwayat Main) yang tidak muncul setelah pembaruan sistem hari ini.
+        </p>
+        <button 
+          type="button" 
+          onClick={handleMigrateData} 
+          disabled={isSaving} 
+          className="w-full bg-red-600 text-white p-3 rounded-xl font-bold text-sm shadow hover:bg-red-700 transition disabled:opacity-50"
+        >
+          {isSaving ? 'Menarik Data...' : 'TARIK DATA LAMA'}
+        </button>
+      </Card>
+
     </div>
   );
 };
