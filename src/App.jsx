@@ -19,20 +19,7 @@ import {
   getDocs
 } from 'firebase/firestore';
 
-// --- React Environment Normalization Patch ---
-if (typeof window !== 'undefined' && typeof Symbol !== 'undefined' && Symbol.for) {
-  const REACT_ELEMENT_TYPE = Symbol.for('react.element');
-  const originalCreateElement = React.createElement;
-  React.createElement = function () {
-    const el = originalCreateElement.apply(this, arguments);
-    if (el && typeof el === 'object' && el.$$typeof !== REACT_ELEMENT_TYPE) {
-      el.$$typeof = REACT_ELEMENT_TYPE;
-    }
-    return el;
-  };
-}
-
-// --- Safe String Helper ---
+// --- Safe String Helper (Memastikan teks polos, bukan objek) ---
 const safeString = (val) => {
   if (val === null || val === undefined) return '';
   if (typeof val === 'string') return val;
@@ -88,7 +75,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // ⚠️ KONFIGURASI FIREBASE PB APASIH ⚠️
 // =========================================================================
 let firebaseConfig = {
-  apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
+   apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
   authDomain: "pb-apasih.firebaseapp.com",
   projectId: "pb-apasih",
   storageBucket: "pb-apasih.firebasestorage.app",
@@ -144,7 +131,10 @@ const generatePDF = async (titleDate, billingData, payments) => {
   try {
     await loadPdfScripts();
     const jsPDFClass = window.jspdf?.jsPDF || window.jsPDF;
-    if (!jsPDFClass) return;
+    if (!jsPDFClass) {
+      console.error("Gagal memuat pustaka PDF. Periksa koneksi internet Anda.");
+      return false;
+    }
     const doc = new jsPDFClass();
 
     doc.setFontSize(13);
@@ -230,7 +220,10 @@ const generateKasPDF = async (filterMonth, transactions, balance) => {
   try {
     await loadPdfScripts();
     const jsPDFClass = window.jspdf?.jsPDF || window.jsPDF;
-    if (!jsPDFClass) return;
+    if (!jsPDFClass) {
+      console.error("Gagal memuat pustaka PDF.");
+      return false;
+    }
     const doc = new jsPDFClass();
 
     const dateObj = new Date(`${filterMonth}-01`);
@@ -377,128 +370,7 @@ const PlayerSelect = ({ courtId, field, placeholder, c, availablePlayers, update
   );
 };
 
-// --- Custom Calendar Picker Component ---
-const CustomCalendarPicker = ({ selectedDate, onChangeDate, activeDates = [] }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [viewDate, setViewDate] = useState(() => {
-    const d = new Date(selectedDate);
-    return isNaN(d.getTime()) ? new Date() : d;
-  });
-
-  const year = viewDate.getFullYear();
-  const month = viewDate.getMonth();
-
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDayIndex = new Date(year, month, 1).getDay();
-
-  const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-
-  const handlePrevMonth = () => {
-    setViewDate(new Date(year, month - 1, 1));
-  };
-
-  const handleNextMonth = () => {
-    setViewDate(new Date(year, month + 1, 1));
-  };
-
-  const formattedDisplayDate = useMemo(() => {
-    const d = new Date(selectedDate);
-    if (isNaN(d.getTime())) return selectedDate;
-    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-  }, [selectedDate]);
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl text-xs shadow-sm hover:bg-blue-100 transition"
-      >
-        <Icon name="calendar" size={14} className="text-blue-600" />
-        <span className="font-bold text-blue-900">{formattedDisplayDate}</span>
-      </button>
-
-      {isOpen && (
-        <div className="absolute right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-gray-200 p-4 z-50 w-72 animate-in zoom-in-95 duration-150">
-          <div className="flex justify-between items-center mb-3">
-            <button onClick={handlePrevMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-600">
-              <Icon name="chevron-left" size={18} />
-            </button>
-            <span className="font-bold text-sm text-gray-800">
-              {monthNames[month]} {year}
-            </span>
-            <button onClick={handleNextMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-600">
-              <Icon name="chevron-right" size={18} />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-gray-400 mb-2">
-            <span>Min</span><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1 text-center text-xs">
-            {Array.from({ length: firstDayIndex }).map((_, i) => (
-              <div key={`empty-${i}`} />
-            ))}
-
-            {Array.from({ length: daysInMonth }).map((_, i) => {
-              const dayNum = i + 1;
-              const formattedMonth = String(month + 1).padStart(2, '0');
-              const formattedDay = String(dayNum).padStart(2, '0');
-              const dateStr = `${year}-${formattedMonth}-${formattedDay}`;
-
-              const isSelected = dateStr === selectedDate;
-              const hasSession = activeDates.includes(dateStr);
-
-              return (
-                <button
-                  key={dateStr}
-                  type="button"
-                  onClick={() => {
-                    onChangeDate(dateStr);
-                    setIsOpen(false);
-                  }}
-                  className={`h-8 w-8 mx-auto rounded-full flex flex-col items-center justify-center font-medium relative transition-all ${
-                    isSelected 
-                      ? 'bg-blue-600 text-white font-bold shadow-md' 
-                      : hasSession 
-                        ? 'bg-emerald-100 text-emerald-900 font-bold hover:bg-emerald-200' 
-                        : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  <span>{dayNum}</span>
-                  {hasSession && !isSelected && (
-                    <span className="absolute bottom-1 w-1 h-1 bg-emerald-600 rounded-full"></span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-500">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block"></span>
-              <span>Ada Jadwal Main</span>
-            </div>
-            <button 
-              type="button"
-              onClick={() => {
-                const today = new Date().toLocaleDateString('en-CA');
-                onChangeDate(today);
-                setIsOpen(false);
-              }}
-              className="text-blue-600 font-bold hover:underline"
-            >
-              Hari Ini
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// --- Komponen Login ---
+// --- Komponen Login (Admin & Login Member) ---
 const AuthView = ({ auth, onLoginMember }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -515,12 +387,15 @@ const AuthView = ({ auth, onLoginMember }) => {
     } catch (err) {
       console.error("Auth Exception:", err);
       const code = err.code || 'unknown';
+      
       if (code === 'auth/invalid-email') {
-        setErrorMsg('Format email tidak valid.');
+        setErrorMsg('Format email tidak valid. Gunakan format seperti: nama@gmail.com');
       } else if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
         setErrorMsg('Email atau password salah.');
+      } else if (code === 'auth/api-key-not-valid') {
+        setErrorMsg('API Key Firebase tidak valid. Periksa apiKey di App.jsx.');
       } else {
-        setErrorMsg(`Gagal masuk: ${err.message || code}`);
+        setErrorMsg(`Gagal masuk: ${safeString(err.message || code)}`);
       }
     }
     setIsLoading(false);
@@ -553,7 +428,7 @@ const AuthView = ({ auth, onLoginMember }) => {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email Admin"
+              placeholder="Email Admin (ex: admin@gmail.com)"
               className="w-full pl-12 p-3.5 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-sm"
             />
           </div>
@@ -641,7 +516,7 @@ const MemberView = ({ user, settings, isMember = false }) => {
 
   const addMember = async (e) => {
     e.preventDefault();
-    if (!newName.trim() || !db || !user || isMember) return;
+    if (!newName.trim() || !db || isMember) return;
     try {
       const membersRef = collection(db, 'artifacts', appId, 'public', 'data', 'members');
       await addDoc(membersRef, { name: newName.trim(), jadwal: newJadwal, createdAt: Date.now() });
@@ -651,7 +526,7 @@ const MemberView = ({ user, settings, isMember = false }) => {
   };
 
   const saveEdit = async (id) => {
-    if (!db || !user || !editName.trim() || isMember) return;
+    if (!db || !editName.trim() || isMember) return;
     try {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'members', id), {
         name: editName.trim(), jadwal: editJadwal
@@ -661,7 +536,7 @@ const MemberView = ({ user, settings, isMember = false }) => {
   };
 
   const deleteMember = async () => {
-    if (!db || !user || !deleteModal.id || isMember) return;
+    if (!db || !deleteModal.id || isMember) return;
     try { 
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'members', deleteModal.id)); 
       setDeleteModal({ isOpen: false, id: null });
@@ -785,7 +660,6 @@ const PertandinganView = ({ user, settings, isMember = false }) => {
   const todayStr = new Date().toLocaleDateString('en-CA'); 
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [subTab, setSubTab] = useState(isMember ? 'rekapan' : 'lapangan');
-  const [activeSessionDates, setActiveSessionDates] = useState([]);
   
   const [session, setSession] = useState({
     id: todayStr, 
@@ -798,19 +672,6 @@ const PertandinganView = ({ user, settings, isMember = false }) => {
   });
 
   const [courts, setCourts] = useState({});
-
-  // Fetch semua tanggal yang memiliki sesi bermain untuk highlight di Custom Calendar
-  useEffect(() => {
-    if (!db) return;
-    const unsubscribe = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'sessions'), (snapshot) => {
-      const dates = [];
-      snapshot.forEach(docSnap => {
-        if (docSnap.id) dates.push(docSnap.id);
-      });
-      setActiveSessionDates(dates);
-    }, (err) => console.error("Active sessions fetch error:", err));
-    return () => unsubscribe();
-  }, []);
 
   useEffect(() => {
     if (isMember && !['rekapan', 'bayar'].includes(subTab)) {
@@ -851,7 +712,7 @@ const PertandinganView = ({ user, settings, isMember = false }) => {
 
   const updateSessionState = async (newSessionState) => {
     setSession(newSessionState);
-    if (!db || !user || isMember) return;
+    if (!db || isMember) return;
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', newSessionState.id), {
         date: safeString(newSessionState.date),
@@ -887,12 +748,15 @@ const PertandinganView = ({ user, settings, isMember = false }) => {
         <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
           <Icon name="swords" size={20} className="text-blue-600" /> Sesi Bermain
         </h2>
-        {/* Custom Calendar Picker */}
-        <CustomCalendarPicker 
-          selectedDate={selectedDate} 
-          onChangeDate={setSelectedDate} 
-          activeDates={activeSessionDates} 
-        />
+        <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 px-3 py-1 rounded-xl text-xs shadow-sm">
+          <Icon name="calendar" size={14} className="text-blue-600" />
+          <input 
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="bg-transparent font-bold text-blue-900 focus:outline-none cursor-pointer text-xs"
+          />
+        </div>
       </div>
       <p className="text-xs text-gray-500 mb-3">{safeString(session.date)}</p>
       
@@ -1105,7 +969,7 @@ const MatchPlay = ({ user, session, courts, setCourts }) => {
   const updateCourt = (courtId, field, value) => setCourts(p => ({ ...p, [courtId]: { ...p[courtId], [field]: value } }));
 
   const finishMatch = async (courtId) => {
-    if (!db || !user) return;
+    if (!db) return;
     const c = courts[courtId] || {};
     const players = [c.p1, c.p2, c.p3, c.p4].filter(Boolean);
     if (players.length < 4) {
@@ -1200,7 +1064,7 @@ const MatchRecap = ({ user, sessionId, isMember = false }) => {
   }, [sessionId]);
 
   const saveEditBola = async (matchId) => {
-    if (!db || !user || isMember) return;
+    if (!db || isMember) return;
     try {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', matchId), {
         balls: Number(editBalls) || 0
@@ -1338,7 +1202,7 @@ const MatchPayment = ({ user, session, updateSessionState, settings, isMember = 
         visitCost,
         totalCost 
       };
-    }).sort((a, b) => a.name.localeCompare(b.name)); // Diurutkan berdasarkan abjad nama pemain (A-Z)
+    }).sort((a,b) => a.name.localeCompare(b.name));
   }, [matches, session.visitors, session.presentMembers, settings]);
 
   const handlePaymentChange = (personId, method) => {
@@ -1461,7 +1325,7 @@ const KasView = ({ user, isMember = false }) => {
 
   const addTransaction = async (e) => {
     e.preventDefault();
-    if (!desc || !amount || !db || !user || isMember) return;
+    if (!desc || !amount || !db || isMember) return;
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), {
         description: desc, amount: parseInt(amount, 10), type, timestamp: Date.now()
@@ -1471,7 +1335,7 @@ const KasView = ({ user, isMember = false }) => {
   };
 
   const delTransaction = async () => { 
-    if(!deleteModal.id || isMember || !db || !user) return;
+    if(!deleteModal.id || isMember || !db) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', deleteModal.id)); 
       setDeleteModal({ isOpen: false, id: null });
@@ -1562,7 +1426,7 @@ const DatabaseView = ({ user, settings: currentSettings }) => {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!db || !user) return;
+    if (!db) return;
     setIsSaving(true);
     setSaveMsg('');
     try {
@@ -1579,7 +1443,7 @@ const DatabaseView = ({ user, settings: currentSettings }) => {
       setTimeout(() => setSaveMsg(''), 3000);
     } catch (err) { 
       console.error("Error saving settings:", err);
-      setSaveMsg(`❌ Gagal Menyimpan: ${err.message || 'Periksa koneksi database'}`); 
+      setSaveMsg(`❌ Gagal Menyimpan: ${safeString(err.message || 'Periksa koneksi database')}`); 
     } finally {
       setIsSaving(false);
     }
@@ -1714,20 +1578,22 @@ const DatabaseView = ({ user, settings: currentSettings }) => {
         {saveMsg && <div className="fixed top-20 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-2xl z-50 text-sm font-bold animate-in slide-in-from-top-4">{safeString(saveMsg)}</div>}
       </form>
       
-      <Card className="border-red-200 bg-red-50 mt-8">
-        <h3 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-2"><Icon name="refresh" size={16} /> Zona Pemulihan Data</h3>
-        <p className="text-xs text-red-600 mb-4 leading-relaxed">
-          Gunakan tombol ini <strong>HANYA JIKA</strong> Anda ingin mengembalikan semua data lama (Member, Kas, Riwayat Main) yang tidak muncul setelah pembaruan sistem hari ini.
-        </p>
-        <button 
-          type="button" 
-          onClick={handleMigrateData} 
-          disabled={isSaving} 
-          className="w-full bg-red-600 text-white p-3 rounded-xl font-bold text-sm shadow hover:bg-red-700 transition disabled:opacity-50"
-        >
-          {isSaving ? 'Menarik Data...' : 'TARIK DATA LAMA'}
-        </button>
-      </Card>
+      {user && (
+        <Card className="border-red-200 bg-red-50 mt-8">
+          <h3 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-2"><Icon name="refresh" size={16} /> Zona Pemulihan Data</h3>
+          <p className="text-xs text-red-600 mb-4 leading-relaxed">
+            Gunakan tombol ini <strong>HANYA JIKA</strong> Anda ingin mengembalikan semua data lama (Member, Kas, Riwayat Main) yang tidak muncul setelah pembaruan sistem hari ini.
+          </p>
+          <button 
+            type="button" 
+            onClick={handleMigrateData} 
+            disabled={isSaving} 
+            className="w-full bg-red-600 text-white p-3 rounded-xl font-bold text-sm shadow hover:bg-red-700 transition disabled:opacity-50"
+          >
+            {isSaving ? 'Menarik Data...' : 'TARIK DATA LAMA'}
+          </button>
+        </Card>
+      )}
     </div>
   );
 };
