@@ -103,7 +103,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // ⚠️ KONFIGURASI FIREBASE PB APASIH ⚠️
 // =========================================================================
 let firebaseConfig = {
- apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
+  apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
   authDomain: "pb-apasih.firebaseapp.com",
   projectId: "pb-apasih",
   storageBucket: "pb-apasih.firebasestorage.app",
@@ -1533,6 +1533,13 @@ const KasView = ({ user, isMember = false }) => {
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, id: null });
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
+  // State untuk Edit Transaksi
+  const [editingTxId, setEditingTxId] = useState(null);
+  const [editTxDate, setEditTxDate] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editType, setEditType] = useState('masuk');
+  const [editAmount, setEditAmount] = useState('');
+
   // Hitung batas tanggal awal dan akhir sesuai bulan kas yang dipilih
   const monthBounds = useMemo(() => {
     const [y, m] = filterMonth.split('-').map(Number);
@@ -1584,7 +1591,7 @@ const KasView = ({ user, isMember = false }) => {
       const customTimestamp = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds()).getTime();
 
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), {
-        description: desc, 
+        description: desc.trim(), 
         amount: parseInt(amount, 10), 
         type, 
         dateStr: txDate,
@@ -1592,6 +1599,37 @@ const KasView = ({ user, isMember = false }) => {
       });
       setDesc(''); setAmount('');
     } catch (err) { console.error(err); }
+  };
+
+  const startEditTx = (t) => {
+    setEditingTxId(t.id);
+    const defaultDate = t.dateStr && typeof t.dateStr === 'string' 
+      ? t.dateStr 
+      : new Date(t.timestamp || Date.now()).toLocaleDateString('en-CA');
+    setEditTxDate(defaultDate);
+    setEditDesc(t.description || '');
+    setEditType(t.type || 'masuk');
+    setEditAmount(String(t.amount || ''));
+  };
+
+  const saveEditTx = async (id) => {
+    if (!editDesc.trim() || !editAmount || !db || isMember) return;
+    try {
+      const now = new Date();
+      const [y, m, d] = (editTxDate || todayStr).split('-').map(Number);
+      const customTimestamp = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds()).getTime();
+
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', id), {
+        description: editDesc.trim(),
+        amount: parseInt(editAmount, 10),
+        type: editType,
+        dateStr: editTxDate,
+        timestamp: customTimestamp
+      });
+      setEditingTxId(null);
+    } catch (err) {
+      console.error("Error updating transaction:", err);
+    }
   };
 
   const delTransaction = async () => { 
@@ -1663,17 +1701,96 @@ const KasView = ({ user, isMember = false }) => {
         <h3 className="text-sm font-bold text-gray-700 mb-2">Riwayat Transaksi</h3>
         {filtered.length===0 && <p className="text-xs text-center text-gray-500 py-4">Belum ada transaksi di bulan ini.</p>}
         {filtered.map(t => (
-          <div key={t.id} className="flex justify-between items-center p-3.5 bg-white rounded-xl shadow-sm border border-gray-100">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-full ${t.type === 'masuk' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{t.type === 'masuk' ? <Icon name="plus" size={16} /> : <Icon name="minus" size={16} />}</div>
-              <div><p className="font-bold text-gray-800 text-xs">{safeString(t.description)}</p><p className="text-[10px] text-gray-400 mt-0.5">{new Date(t.timestamp || Date.now()).toLocaleDateString('id-ID')}</p></div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`font-black text-sm ${t.type === 'masuk' ? 'text-green-600' : 'text-red-600'}`}>{t.type === 'masuk' ? '+' : '-'}{formatRp(t.amount)}</span>
-              {!isMember && (
-                <button onClick={() => setDeleteModal({ isOpen: true, id: t.id })} className="text-gray-300 hover:text-red-500 transition"><Icon name="trash" size={16} /></button>
-              )}
-            </div>
+          <div key={t.id} className="p-3.5 bg-white rounded-xl shadow-sm border border-gray-100">
+            {editingTxId === t.id && !isMember ? (
+              <div className="space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-lg border border-gray-200">
+                  <Icon name="calendar" size={14} className="text-blue-600 flex-shrink-0 ml-1" />
+                  <label className="text-xs font-semibold text-gray-600">Tanggal:</label>
+                  <input 
+                    type="date" 
+                    value={editTxDate} 
+                    onChange={(e) => setEditTxDate(e.target.value)} 
+                    className="flex-1 bg-transparent text-xs font-bold text-gray-800 focus:outline-none text-right cursor-pointer"
+                  />
+                </div>
+                <input 
+                  type="text" 
+                  value={editDesc} 
+                  onChange={(e) => setEditDesc(e.target.value)} 
+                  placeholder="Keterangan"
+                  className="w-full p-2.5 border border-gray-300 rounded-lg text-xs font-medium"
+                />
+                <div className="flex gap-2">
+                  <select 
+                    value={editType} 
+                    onChange={(e) => setEditType(e.target.value)} 
+                    className="w-1/3 p-2.5 border border-gray-300 rounded-lg text-xs font-semibold bg-white"
+                  >
+                    <option value="masuk">Masuk</option>
+                    <option value="keluar">Keluar</option>
+                  </select>
+                  <input 
+                    type="number" 
+                    value={editAmount} 
+                    onChange={(e) => setEditAmount(e.target.value)} 
+                    placeholder="Nominal Rp"
+                    className="w-2/3 p-2.5 border border-gray-300 rounded-lg text-xs font-bold"
+                  />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button 
+                    type="button"
+                    onClick={() => saveEditTx(t.id)} 
+                    className="flex-1 bg-green-600 text-white py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-green-700 transition"
+                  >
+                    Simpan
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setEditingTxId(null)} 
+                    className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-gray-300 transition"
+                  >
+                    Batal
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-full ${t.type === 'masuk' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {t.type === 'masuk' ? <Icon name="plus" size={16} /> : <Icon name="minus" size={16} />}
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-800 text-xs">{safeString(t.description)}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{new Date(t.timestamp || Date.now()).toLocaleDateString('id-ID')}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`font-black text-sm mr-1 ${t.type === 'masuk' ? 'text-green-600' : 'text-red-600'}`}>
+                    {t.type === 'masuk' ? '+' : '-'}{formatRp(t.amount)}
+                  </span>
+                  {!isMember && (
+                    <>
+                      <button 
+                        onClick={() => startEditTx(t)} 
+                        className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-full transition"
+                        title="Edit Transaksi"
+                      >
+                        <Icon name="edit" size={15} />
+                      </button>
+                      <button 
+                        onClick={() => setDeleteModal({ isOpen: true, id: t.id })} 
+                        className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition"
+                        title="Hapus Transaksi"
+                      >
+                        <Icon name="trash" size={15} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
