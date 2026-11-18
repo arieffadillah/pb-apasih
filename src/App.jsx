@@ -19,6 +19,34 @@ import {
   getDocs
 } from 'firebase/firestore';
 
+// --- Tailwind Global Safety Guard ---
+var tailwind = (typeof window !== 'undefined' && window.tailwind) ? window.tailwind : { config: {} };
+if (typeof window !== 'undefined') {
+  window.tailwind = tailwind;
+  if (typeof globalThis !== 'undefined') {
+    globalThis.tailwind = tailwind;
+  }
+  if (!document.querySelector('script[src*="cdn.tailwindcss.com"]')) {
+    const twScript = document.createElement('script');
+    twScript.src = 'https://cdn.tailwindcss.com';
+    document.head.appendChild(twScript);
+  }
+}
+
+// --- React Environment Normalization Patch ---
+// Mencegah error "Objects are not valid as a React child" saat UMD ReactDOM merender elemen dari React module
+if (typeof Symbol !== 'undefined' && Symbol.for && React && typeof React.createElement === 'function') {
+  const REACT_ELEMENT_TYPE = Symbol.for('react.element');
+  const originalCreateElement = React.createElement;
+  React.createElement = function () {
+    const el = originalCreateElement.apply(this, arguments);
+    if (el && typeof el === 'object' && el.$$typeof !== REACT_ELEMENT_TYPE) {
+      el.$$typeof = REACT_ELEMENT_TYPE;
+    }
+    return el;
+  };
+}
+
 // --- Safe String Helper (Memastikan teks polos, bukan objek) ---
 const safeString = (val) => {
   if (val === null || val === undefined) return '';
@@ -75,7 +103,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // ⚠️ KONFIGURASI FIREBASE PB APASIH ⚠️
 // =========================================================================
 let firebaseConfig = {
-   apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
+  apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
   authDomain: "pb-apasih.firebaseapp.com",
   projectId: "pb-apasih",
   storageBucket: "pb-apasih.firebasestorage.app",
@@ -119,10 +147,16 @@ const loadPdfScripts = () => {
       });
     };
 
-    Promise.all([
-      loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
-      loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js')
-    ]).then(resolve).catch(reject);
+    loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+      .then(() => {
+        // Pastikan window.jsPDF tersedia sebelum memuat autoTable
+        if (window.jspdf && window.jspdf.jsPDF && !window.jsPDF) {
+          window.jsPDF = window.jspdf.jsPDF;
+        }
+        return loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js');
+      })
+      .then(resolve)
+      .catch(reject);
   });
 };
 
@@ -132,7 +166,7 @@ const generatePDF = async (titleDate, billingData, payments) => {
     await loadPdfScripts();
     const jsPDFClass = window.jspdf?.jsPDF || window.jsPDF;
     if (!jsPDFClass) {
-      console.error("Gagal memuat pustaka PDF. Periksa koneksi internet Anda.");
+      console.error("Gagal memuat pustaka PDF.");
       return false;
     }
     const doc = new jsPDFClass();
@@ -176,6 +210,15 @@ const generatePDF = async (titleDate, billingData, payments) => {
           7: { halign: 'center' }
         }
       });
+    } else {
+      // Fallback manual table jika autoTable gagal ter-attach
+      let yPos = 28;
+      doc.setFontSize(8.5);
+      tableRows.forEach((r) => {
+        doc.text(`${r[0]}. ${r[1]} (${r[2]}) - Bola: ${r[3]} | Total: ${r[6]} [${r[7]}]`, 14, yPos);
+        yPos += 6;
+      });
+      doc.lastAutoTable = { finalY: yPos };
     }
 
     const totalAll = (billingData || []).reduce((acc, r) => acc + (r.totalCost || 0), 0);
@@ -187,7 +230,7 @@ const generatePDF = async (titleDate, billingData, payments) => {
     const totalTrf = (billingData || []).filter(r => safeString(payments?.[r.id]) === 'Trf').reduce((acc, r) => acc + (r.totalCost || 0), 0);
     const totalUnpaid = (billingData || []).filter(r => !payments?.[r.id] || safeString(payments?.[r.id]) === 'Belum Bayar').reduce((acc, r) => acc + (r.totalCost || 0), 0);
 
-    const finalY = (doc.lastAutoTable?.finalY || 100) + 8;
+    const finalY = (doc.lastAutoTable?.finalY || 100) + 10;
 
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
@@ -270,9 +313,17 @@ const generateKasPDF = async (filterMonth, transactions, balance) => {
           4: { halign: 'right', fontStyle: 'bold' }
         }
       });
+    } else {
+      let yPos = 28;
+      doc.setFontSize(8.5);
+      tableRows.forEach((r) => {
+        doc.text(`${r[0]}. [${r[1]}] ${r[2]} (${r[3]}) : ${r[4]}`, 14, yPos);
+        yPos += 6;
+      });
+      doc.lastAutoTable = { finalY: yPos };
     }
 
-    const finalY = (doc.lastAutoTable?.finalY || 100) + 8;
+    const finalY = (doc.lastAutoTable?.finalY || 100) + 10;
 
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
@@ -370,106 +421,142 @@ const PlayerSelect = ({ courtId, field, placeholder, c, availablePlayers, update
   );
 };
 
-// --- Komponen Login (Admin & Login Member) ---
-const AuthView = ({ auth, onLoginMember }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+// --- Interactive Custom Calendar Component ---
+const CustomCalendarModal = ({ isOpen, onClose, selectedDate, onSelectDate, activeDates = [] }) => {
+  if (!isOpen) return null;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setIsLoading(true);
+  const initialDate = selectedDate ? new Date(selectedDate + 'T00:00:00') : new Date();
+  const [viewYear, setViewYear] = useState(initialDate.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initialDate.getMonth());
 
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (err) {
-      console.error("Auth Exception:", err);
-      const code = err.code || 'unknown';
-      
-      if (code === 'auth/invalid-email') {
-        setErrorMsg('Format email tidak valid. Gunakan format seperti: nama@gmail.com');
-      } else if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
-        setErrorMsg('Email atau password salah.');
-      } else if (code === 'auth/api-key-not-valid') {
-        setErrorMsg('API Key Firebase tidak valid. Periksa apiKey di App.jsx.');
-      } else {
-        setErrorMsg(`Gagal masuk: ${safeString(err.message || code)}`);
+  useEffect(() => {
+    if (isOpen && selectedDate) {
+      const d = new Date(selectedDate + 'T00:00:00');
+      if (!isNaN(d.getTime())) {
+        setViewYear(d.getFullYear());
+        setViewMonth(d.getMonth());
       }
     }
-    setIsLoading(false);
+  }, [isOpen, selectedDate]);
+
+  const monthNames = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+  const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+
+  const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+  const handlePrevMonth = () => {
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear(viewYear - 1);
+    } else {
+      setViewMonth(viewMonth - 1);
+    }
   };
 
+  const handleNextMonth = () => {
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear(viewYear + 1);
+    } else {
+      setViewMonth(viewMonth + 1);
+    }
+  };
+
+  const todayStr = new Date().toLocaleDateString('en-CA');
+
   return (
-    <div className="flex h-screen items-center justify-center bg-gray-50 p-4 md:max-w-md md:mx-auto">
-      <div className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
-        <div className="text-center mb-8">
-          <div className="w-20 h-20 bg-blue-800 rounded-full flex items-center justify-center text-white font-bold text-2xl mx-auto mb-4 shadow-lg border-4 border-blue-100">
-            PB
-          </div>
-          <h2 className="text-2xl font-bold text-gray-800">PB APASIH</h2>
-          <p className="text-gray-500 text-xs mt-1 font-medium">Badminton Club System</p>
-        </div>
-
-        {errorMsg && (
-          <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm mb-4 border border-red-100 text-center font-medium">
-            {safeString(errorMsg)}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Icon name="mail" size={18} className="text-gray-400" />
-            </div>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email Admin (ex: admin@gmail.com)"
-              className="w-full pl-12 p-3.5 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-sm"
-            />
-          </div>
-          
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Icon name="lock" size={18} className="text-gray-400" />
-            </div>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password Admin"
-              className="w-full pl-12 p-3.5 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-sm"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-blue-800 text-white p-3.5 rounded-2xl font-bold hover:bg-blue-900 transition-colors mt-2 shadow-lg disabled:opacity-70 text-sm flex items-center justify-center gap-2"
-          >
-            <Icon name="user-check" size={18} />
-            {isLoading ? 'Memproses...' : 'Login Admin'}
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={onClose}>
+      <div className="bg-white rounded-3xl p-5 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <button onClick={handlePrevMonth} className="p-2 rounded-full hover:bg-gray-100 text-gray-600 transition">
+            <Icon name="chevron-left" size={20} />
           </button>
-        </form>
-
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
-          <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-3 text-gray-400 font-semibold">Atau</span></div>
+          <h3 className="font-bold text-base text-gray-800">
+            {monthNames[viewMonth]} {viewYear}
+          </h3>
+          <button onClick={handleNextMonth} className="p-2 rounded-full hover:bg-gray-100 text-gray-600 transition">
+            <Icon name="chevron-right" size={20} />
+          </button>
         </div>
 
-        <button
-          type="button"
-          onClick={onLoginMember}
-          className="w-full bg-emerald-600 text-white p-3.5 rounded-2xl font-bold hover:bg-emerald-700 transition-colors shadow-md text-sm flex items-center justify-center gap-2"
-        >
-          <Icon name="eye" size={18} />
-          Login Member
-        </button>
+        <div className="grid grid-cols-7 gap-1 text-center mb-2">
+          {dayNames.map(d => (
+            <div key={d} className="text-[11px] font-bold text-gray-400 uppercase py-1">
+              {d}
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1 text-center">
+          {Array.from({ length: firstDayOfMonth }).map((_, idx) => (
+            <div key={`empty-${idx}`} className="p-2" />
+          ))}
+
+          {Array.from({ length: daysInMonth }).map((_, idx) => {
+            const dayNum = idx + 1;
+            const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+            const isSelected = dateStr === selectedDate;
+            const isToday = dateStr === todayStr;
+            const hasSession = activeDates.includes(dateStr);
+
+            return (
+              <button
+                key={dateStr}
+                type="button"
+                onClick={() => {
+                  onSelectDate(dateStr);
+                  onClose();
+                }}
+                className={`relative h-10 w-full rounded-xl flex flex-col items-center justify-center text-xs font-semibold transition-all ${
+                  isSelected
+                    ? 'bg-blue-700 text-white shadow-md font-bold scale-105'
+                    : isToday
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200 font-bold'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <span>{dayNum}</span>
+                {hasSession && (
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full mt-0.5 ${
+                      isSelected ? 'bg-amber-300' : 'bg-emerald-500'
+                    }`}
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+            <span>Ada Sesi Main</span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                onSelectDate(todayStr);
+                onClose();
+              }}
+              className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 transition"
+            >
+              Hari Ini
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 transition"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -659,6 +746,8 @@ const MemberView = ({ user, settings, isMember = false }) => {
 const PertandinganView = ({ user, settings, isMember = false }) => {
   const todayStr = new Date().toLocaleDateString('en-CA'); 
   const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [activeDates, setActiveDates] = useState([]);
   const [subTab, setSubTab] = useState(isMember ? 'rekapan' : 'lapangan');
   
   const [session, setSession] = useState({
@@ -679,11 +768,39 @@ const PertandinganView = ({ user, settings, isMember = false }) => {
     }
   }, [isMember, subTab]);
 
+  // Pantau tanggal-tanggal yang memiliki data sesi/pertandingan untuk indikator kalender
+  useEffect(() => {
+    if (!db) return;
+    const unsubSessions = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'sessions'), (snapshot) => {
+      const dates = [];
+      snapshot.forEach(docSnap => {
+        const d = docSnap.data() || {};
+        const hasPlayers = Object.values(d.presentMembers || {}).some(Boolean) || (d.visitors || []).length > 0;
+        if (hasPlayers) dates.push(docSnap.id);
+      });
+      setActiveDates(prev => Array.from(new Set([...prev, ...dates])));
+    });
+
+    const unsubMatches = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'matches'), (snapshot) => {
+      const matchDates = [];
+      snapshot.forEach(docSnap => {
+        const d = docSnap.data() || {};
+        if (d.sessionId) matchDates.push(d.sessionId);
+      });
+      setActiveDates(prev => Array.from(new Set([...prev, ...matchDates])));
+    });
+
+    return () => {
+      unsubSessions();
+      unsubMatches();
+    };
+  }, []);
+
   useEffect(() => {
     if (!db) return;
     const sessionDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', selectedDate);
     const unsubscribe = onSnapshot(sessionDocRef, (docSnap) => {
-      const formattedDateText = new Date(selectedDate).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const formattedDateText = new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
       if (docSnap.exists()) {
         const data = docSnap.data() || {};
         setSession({
@@ -748,15 +865,14 @@ const PertandinganView = ({ user, settings, isMember = false }) => {
         <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
           <Icon name="swords" size={20} className="text-blue-600" /> Sesi Bermain
         </h2>
-        <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 px-3 py-1 rounded-xl text-xs shadow-sm">
+        <button 
+          type="button"
+          onClick={() => setIsCalendarOpen(true)}
+          className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-xl text-xs shadow-sm transition active:scale-95"
+        >
           <Icon name="calendar" size={14} className="text-blue-600" />
-          <input 
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="bg-transparent font-bold text-blue-900 focus:outline-none cursor-pointer text-xs"
-          />
-        </div>
+          <span className="font-bold text-blue-900">{selectedDate}</span>
+        </button>
       </div>
       <p className="text-xs text-gray-500 mb-3">{safeString(session.date)}</p>
       
@@ -774,15 +890,126 @@ const PertandinganView = ({ user, settings, isMember = false }) => {
 
       <div className="flex-1 overflow-y-auto pb-4">
         {!isMember && subTab === 'lapangan' && <MatchSetup session={session} updateSessionState={updateSessionState} onNext={() => setSubTab('pemain')} settings={settings} />}
-        {!isMember && subTab === 'pemain' && <MatchAttendance user={user} session={session} updateSessionState={updateSessionState} onNext={() => setSubTab('pertandingan')} />}
-        {!isMember && subTab === 'pertandingan' && <MatchPlay user={user} session={session} courts={courts} setCourts={setCourts} />}
-        {subTab === 'rekapan' && <MatchRecap user={user} sessionId={session.id} isMember={isMember} />}
-        {subTab === 'bayar' && <MatchPayment user={user} session={session} updateSessionState={updateSessionState} settings={settings} isMember={isMember} />}
+      {!isMember && subTab === 'pemain' && <MatchAttendance user={user} session={session} updateSessionState={updateSessionState} onNext={() => setSubTab('pertandingan')} />}
+      {!isMember && subTab === 'pertandingan' && <MatchPlay user={user} session={session} courts={courts} setCourts={setCourts} />}
+      {subTab === 'rekapan' && <MatchRecap user={user} sessionId={session.id} isMember={isMember} />}
+      {subTab === 'bayar' && <MatchPayment user={user} session={session} updateSessionState={updateSessionState} settings={settings} isMember={isMember} />}
+    </div>
+
+    <CustomCalendarModal
+      isOpen={isCalendarOpen}
+      onClose={() => setIsCalendarOpen(false)}
+      selectedDate={selectedDate}
+      onSelectDate={(dateStr) => setSelectedDate(dateStr)}
+      activeDates={activeDates}
+    />
+  </div>
+);
+};
+
+// --- Komponen Login (Admin & Login Member) ---
+const AuthView = ({ auth, onLoginMember }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setIsLoading(true);
+
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      console.error("Auth Exception:", err);
+      const code = err.code || 'unknown';
+      if (code === 'auth/invalid-email') {
+        setErrorMsg('Format email tidak valid. Gunakan format seperti: nama@gmail.com');
+      } else if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+        setErrorMsg('Email atau password salah.');
+      } else {
+        setErrorMsg(`Gagal masuk: ${safeString(err.message || code)}`);
+      }
+    }
+    setIsLoading(false);
+  };
+
+  return (
+    <div className="flex h-screen items-center justify-center bg-gray-50 p-4 md:max-w-md md:mx-auto">
+      <div className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
+        <div className="text-center mb-8">
+          <div className="w-20 h-20 bg-blue-800 rounded-full flex items-center justify-center text-white font-bold text-2xl mx-auto mb-4 shadow-lg border-4 border-blue-100">
+            PB
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800">PB APASIH</h2>
+          <p className="text-gray-500 text-xs mt-1 font-medium">Badminton Club System</p>
+        </div>
+
+        {errorMsg && (
+          <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm mb-4 border border-red-100 text-center font-medium">
+            {safeString(errorMsg)}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <Icon name="mail" size={18} className="text-gray-400" />
+            </div>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email Admin (ex: admin@gmail.com)"
+              className="w-full pl-12 p-3.5 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-sm"
+            />
+          </div>
+          
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <Icon name="lock" size={18} className="text-gray-400" />
+            </div>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password Admin"
+              className="w-full pl-12 p-3.5 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 text-sm"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full bg-blue-800 text-white p-3.5 rounded-2xl font-bold hover:bg-blue-900 transition-colors mt-2 shadow-lg disabled:opacity-70 text-sm flex items-center justify-center gap-2"
+          >
+            <Icon name="user-check" size={18} />
+            {isLoading ? 'Memproses...' : 'Login Admin'}
+          </button>
+        </form>
+
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
+          <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-3 text-gray-400 font-semibold">Atau</span></div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onLoginMember}
+          className="w-full bg-emerald-600 text-white p-3.5 rounded-2xl font-bold hover:bg-emerald-700 transition-colors shadow-md text-sm flex items-center justify-center gap-2"
+        >
+          <Icon name="eye" size={18} />
+          Login Member
+        </button>
       </div>
     </div>
   );
 };
 
+// --- Sub-komponen Sesi Bermain ---
 const MatchSetup = ({ session, updateSessionState, onNext, settings }) => {
   const availableSchedules = Array.from({ length: settings?.jumlahJadwal || 2 }, (_, i) => `Jadwal ${i + 1}`);
   return (
