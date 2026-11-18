@@ -103,7 +103,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // ⚠️ KONFIGURASI FIREBASE PB APASIH ⚠️
 // =========================================================================
 let firebaseConfig = {
-  apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
+ apiKey: "AIzaSyAMBL9HXEUGVKpEUw9Q95g6IMoDZMHlU6s",
   authDomain: "pb-apasih.firebaseapp.com",
   projectId: "pb-apasih",
   storageBucket: "pb-apasih.firebasestorage.app",
@@ -1523,13 +1523,38 @@ const MatchPayment = ({ user, session, updateSessionState, settings, isMember = 
 
 // --- 3. Kas (Cash Flow) View ---
 const KasView = ({ user, isMember = false }) => {
+  const todayStr = new Date().toLocaleDateString('en-CA');
   const [transactions, setTransactions] = useState([]);
   const [desc, setDesc] = useState('');
   const [amount, setAmount] = useState('');
   const [type, setType] = useState('masuk');
-  const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [filterMonth, setFilterMonth] = useState(todayStr.slice(0, 7));
+  const [txDate, setTxDate] = useState(todayStr);
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, id: null });
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+
+  // Hitung batas tanggal awal dan akhir sesuai bulan kas yang dipilih
+  const monthBounds = useMemo(() => {
+    const [y, m] = filterMonth.split('-').map(Number);
+    if (!y || !m) return { min: '', max: '' };
+    const lastDay = new Date(y, m, 0).getDate();
+    return {
+      min: `${filterMonth}-01`,
+      max: `${filterMonth}-${String(lastDay).padStart(2, '0')}`
+    };
+  }, [filterMonth]);
+
+  // Sinkronisasi tanggal transaksi otomatis saat filter bulan kas berubah
+  useEffect(() => {
+    if (!txDate.startsWith(filterMonth)) {
+      const currentToday = new Date().toLocaleDateString('en-CA');
+      if (currentToday.startsWith(filterMonth)) {
+        setTxDate(currentToday);
+      } else {
+        setTxDate(`${filterMonth}-01`);
+      }
+    }
+  }, [filterMonth]);
   
   useEffect(() => {
     if (!db) return;
@@ -1554,8 +1579,16 @@ const KasView = ({ user, isMember = false }) => {
     e.preventDefault();
     if (!desc || !amount || !db || isMember) return;
     try {
+      const now = new Date();
+      const [y, m, d] = (txDate || todayStr).split('-').map(Number);
+      const customTimestamp = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds()).getTime();
+
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), {
-        description: desc, amount: parseInt(amount, 10), type, timestamp: Date.now()
+        description: desc, 
+        amount: parseInt(amount, 10), 
+        type, 
+        dateStr: txDate,
+        timestamp: customTimestamp
       });
       setDesc(''); setAmount('');
     } catch (err) { console.error(err); }
@@ -1570,6 +1603,9 @@ const KasView = ({ user, isMember = false }) => {
   };
 
   const filtered = transactions.filter(t => {
+    if (t.dateStr && typeof t.dateStr === 'string') {
+      return t.dateStr.startsWith(filterMonth);
+    }
     const d = new Date(t.timestamp || Date.now());
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === filterMonth;
   });
@@ -1600,6 +1636,19 @@ const KasView = ({ user, isMember = false }) => {
         <Card>
           <h3 className="text-sm font-bold text-gray-700 mb-3 border-b pb-2">Catat Transaksi</h3>
           <form onSubmit={addTransaction} className="space-y-3">
+            <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-xl border border-gray-200">
+              <Icon name="calendar" size={16} className="text-blue-600 flex-shrink-0 ml-1" />
+              <label className="text-xs font-semibold text-gray-600 whitespace-nowrap">Tanggal:</label>
+              <input 
+                type="date" 
+                value={txDate} 
+                min={monthBounds.min}
+                max={monthBounds.max}
+                onChange={(e) => setTxDate(e.target.value)} 
+                className="flex-1 bg-transparent text-sm font-bold text-gray-800 focus:outline-none text-right cursor-pointer"
+                required
+              />
+            </div>
             <input type="text" placeholder="Keterangan (ex: Beli Bola)" value={desc} onChange={(e)=>setDesc(e.target.value)} className="w-full p-3 border border-gray-300 rounded-xl text-sm" required/>
             <div className="flex gap-2">
               <select value={type} onChange={(e)=>setType(e.target.value)} className="w-1/3 p-3 border border-gray-300 rounded-xl text-sm"><option value="masuk">Masuk</option><option value="keluar">Keluar</option></select>
